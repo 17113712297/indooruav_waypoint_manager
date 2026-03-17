@@ -52,13 +52,7 @@ $$
 提取里程计四元数的偏航角（Yaw），计算与上次记录时偏航角的**最短角度差**：
 
 $$
-\Delta\psi =
-\left|
-\mathrm{atan2}\big(2(q_w q_z + q_x q_y),\ 1 - 2(q_y^2 + q_z^2)\big)
-
-* \psi_{\text{last}}
-  \right|_{\bmod 2\pi}
-  \ge \Delta A
+\Delta\psi =\left|\mathrm{atan2}\big(2(q_w q_z + q_x q_y),\ 1 - 2(q_y^2 + q_z^2)\big)*\psi_{\text{last}}\right|_{\bmod 2\pi}\ge\Delta A
 $$
 
 角度差归一化到 $[0,\,\pi]$，避免跨越 ±180° 时的误触发。
