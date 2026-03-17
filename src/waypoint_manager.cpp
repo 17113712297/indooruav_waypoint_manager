@@ -20,7 +20,7 @@ WaypointManager::WaypointManager(ros::NodeHandle&   nh,
     , delta_A_rad_(delta_A_deg * M_PI / 180.0)
 {
     ROS_INFO_STREAM("[WaypointManager] 初始化完成");
-    ROS_INFO_STREAM("  ΔL（XY） = " << delta_L_m_  << " m");
+    ROS_INFO_STREAM("  ΔL（XYZ）= " << delta_L_m_  << " m");
     ROS_INFO_STREAM("  ΔT       = " << delta_T_s_  << " s");
     ROS_INFO_STREAM("  ΔA       = " << delta_A_deg << " °  ("
                     << delta_A_rad_ << " rad)");
@@ -47,19 +47,21 @@ void WaypointManager::odomCallback(const nav_msgs::Odometry::ConstPtr& msg)
         first_msg_        = false;
         last_x_           = cx;
         last_y_           = cy;
+        last_z_           = cz;
         last_record_time_ = now;
         last_yaw_         = current_yaw;
         recorder_.record(makeWaypoint(msg));
         return;
     }
 
-    // ── 计算当前步长并累加 XY 位移 ───────────────────────────────────────────
-    const double step = distance2D(cx, cy, last_x_, last_y_);
+    // ── 计算当前步长并累加 XYZ 位移 ───────────────────────────────────────────
+    const double step = distance3D(cx, cy, cz, last_x_, last_y_, last_z_);
     accum_dist_ += step;
 
     // 每帧更新位置（保证累计位移连续）
     last_x_ = cx;
     last_y_ = cy;
+    last_z_ = cz;
 
     const double elapsed  = (now - last_record_time_).toSec();
     const double yaw_diff = yawDiff(current_yaw, last_yaw_);
@@ -107,13 +109,14 @@ Waypoint WaypointManager::makeWaypoint(const nav_msgs::Odometry::ConstPtr& msg) 
     return wp;
 }
 
-// ─── distance2D ──────────────────────────────────────────────────────────────
-double WaypointManager::distance2D(double x1, double y1,
-                                   double x2, double y2)
+// ─── distance3D ──────────────────────────────────────────────────────────────
+double WaypointManager::distance3D(double x1, double y1, double z1,
+                                   double x2, double y2, double z2)
 {
     const double dx = x1 - x2;
     const double dy = y1 - y2;
-    return std::sqrt(dx * dx + dy * dy);
+    const double dz = z1 - z2;
+    return std::sqrt(dx * dx + dy * dy + dz * dz);
 }
 
 // ─── quaternionToYaw ─────────────────────────────────────────────────────────

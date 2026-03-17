@@ -17,7 +17,7 @@
         output="screen"
         required="true">
 
-    <!-- 从 config.yaml 中加载所有参数到私有命名空间 (~/) -->
+    <!-- 从 config.yaml 中加载所有参数到私有命名空间22 (~/) -->
     <rosparam command="load" file="$(arg config_file)" />
 
   </node>
