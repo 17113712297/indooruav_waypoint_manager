@@ -1,0 +1,25 @@
+<!-- indooruav_waypoint_manager/launch/indooruav_waypoint_manager.launch -->
+<launch>
+
+  <!-- ============================================================
+       可在命令行覆盖的顶层参数（arg）
+       例：roslaunch indooruav_waypoint_manager indooruav_waypoint_manager.launch delta_L_m:=2.0
+       ============================================================ -->
+  <arg name="config_file"
+       default="$(find indooruav_waypoint_manager)/config/config.yaml"/>
+
+  <!-- ============================================================
+       节点定义
+       ============================================================ -->
+  <node name="indooruav_waypoint_manager"
+        pkg="indooruav_waypoint_manager"
+        type="indooruav_waypoint_manager_node"
+        output="screen"
+        required="true">
+
+    <!-- 从 config.yaml 中加载所有参数到私有命名空间 (~/) -->
+    <rosparam command="load" file="$(arg config_file)" />
+
+  </node>
+
+</launch>
