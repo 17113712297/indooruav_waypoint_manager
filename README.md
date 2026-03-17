@@ -1,201 +1,231 @@
 # indooruav_waypoint_manager
 
-> **ROS 功能包** · 室内无人机航点自动记录器
-
-订阅全局里程计话题，当满足**累计位移阈值（ΔL）**或**时间间隔阈值（ΔT）**任一条件时，自动采集机器人当前位姿并追加写入 JSON 航点文件。
+> ROS 航点自动记录器：订阅里程计话题，按**位移（XY）**、**时间**、**偏航角**三重触发条件自动采集机器人位姿，并将结果序列化为 JSON 文件。
 
 ---
 
 ## 目录
 
-- [功能概述](#功能概述)
-- [工作原理](#工作原理)
-- [目录结构](#目录结构)
-- [依赖环境](#依赖环境)
-- [编译](#编译)
-- [配置参数](#配置参数)
-- [启动](#启动)
-- [输出格式](#输出格式)
-- [模块说明](#模块说明)
-- [注意事项](#注意事项)
+1. [功能概述](#功能概述)
+2. [触发条件说明](#触发条件说明)
+3. [快速开始](#快速开始)
+4. [参数配置](#参数配置)
+5. [输出格式](#输出格式)
+6. [包结构](#包结构)
+7. [依赖项](#依赖项)
+8. [构建与安装](#构建与安装)
+9. [常见问题](#常见问题)
 
 ---
 
 ## 功能概述
 
-| 特性 | 说明 |
-|------|------|
-| 双触发条件 | 累计位移 \(\geq \Delta L\) **或** 经过时间 \(\geq \Delta T\) 时记录一个航点 |
-| 三维位姿 | 记录 \((x,\,y,\,z)\) 位置与四元数 \((q_x,\,q_y,\,q_z,\,q_w)\) 姿态 |
-| ISO-8601 时间戳 | 每条航点附带毫秒精度时间戳，例如 `2025-03-11T08:30:00.123` |
-| JSON 输出 | 所有航点序列化为结构化 JSON 文件，便于后续解析与回放 |
-| 安全落盘 | 节点收到 `SIGINT`（Ctrl+C）时自动保存，析构时也会兜底写盘 |
+`indooruav_waypoint_manager` 是一个轻量级 ROS 节点，负责：
+
+- 订阅 `nav_msgs/Odometry` 消息（话题可配置）；
+- 根据三种可独立配置的触发条件，自动判断何时记录一个**航点（Waypoint）**；
+- 将所有航点（含位置、姿态四元数、时间戳）写入指定路径的 **JSON 文件**；
+- 支持通过 `Ctrl+C`（SIGINT）安全退出并自动落盘，析构时也会兜底保存。
 
 ---
 
-## 工作原理
+## 触发条件说明
 
-节点在每一帧里程计消息回调中执行如下逻辑：
+三种条件满足**任意一种**即立即记录当前位姿，随后重置所有累计量。
+
+### ΔL — XY 平面位移触发
+
+当机器人相对上次记录点的 **XY 平面投影距离**达到阈值时触发：
 
 \[
-\text{记录} \iff \underbrace{\sum_{k} \|p_k - p_{k-1}\|_2 \;\geq\; \Delta L}_{\text{位移触发}} \;\;\mathbf{OR}\;\; \underbrace{t_{\text{now}} - t_{\text{last}} \;\geq\; \Delta T}_{\text{时间触发}}
+d_{XY} = \sqrt{(x - x_{\text{last}})^2 + (y - y_{\text{last}})^2} \geq \Delta L
 \]
 
-其中累计位移 \(\sum_{k} \|p_k - p_{k-1}\|_2\) 在每次记录后清零，\(t_{\text{last}}\) 同步更新为当前帧时间戳。
+> **注意：** 此处仅计算水平面（XY）距离，Z 轴（高度）变化**不计入**位移统计。这在室内无人机等高度变化不代表路径长度的场景中更为合理。
 
-**首帧消息**无条件记录，作为航点序列的起点。
-
----
-
-## 目录结构
-
-```
-indooruav_waypoint_manager/
-├── CMakeLists.txt
-├── package.xml
-├── README.md
-├── .gitignore
-├── config/
-│   └── config.yaml                  # 可配置参数
-├── data/
-│   └── waypoints.json               # 运行后生成的航点文件
-├── doc/
-│   └── doc.drawio                   # 架构示意图
-├── include/
-│   └── indooruav_waypoint_manager/
-│       ├── waypoint.hpp             # Waypoint 数据结构
-│       ├── recorder.hpp             # Recorder 类声明
-│       └── waypoint_manager.hpp     # WaypointManager 类声明
-├── launch/
-│   └── bringup_indooruav_waypoint_manager.launch
-└── src/
-    ├── main.cpp                     # 节点入口
-    ├── waypoint_manager.cpp         # 触发逻辑实现
-    └── recorder.cpp                 # JSON 序列化实现
-```
+对应参数：`delta_L_m`（单位：米）
 
 ---
 
-## 依赖环境
+### ΔT — 时间间隔触发
 
-| 依赖 | 版本要求 |
-|------|----------|
-| ROS | Noetic（或 Melodic） |
-| roscpp | 随 ROS 安装 |
-| nav_msgs | 随 ROS 安装 |
-| C++ 标准 | C++14 |
+距上次记录时刻已经过的秒数：
+
+\[
+t_{\text{elapsed}} = t_{\text{now}} - t_{\text{last}} \geq \Delta T
+\]
+
+可防止机器人静止时长时间无航点输出。
+
+对应参数：`delta_T_s`（单位：秒）
 
 ---
 
-## 编译
+### ΔA — 偏航角触发
 
-将功能包放置于 catkin 工作空间的 `src/` 目录下，然后执行：
+提取里程计四元数的偏航角（Yaw），计算与上次记录时偏航角的**最短角度差**：
+
+\[
+\Delta\psi = \bigl|\operatorname{atan2}(2(q_w q_z + q_x q_y),\ 1 - 2(q_y^2 + q_z^2)) - \psi_{\text{last}}\bigr|_{\bmod 2\pi} \geq \Delta A
+\]
+
+角度差归一化到 \([0,\,\pi]\)，避免跨越 ±180° 时的误触发。
+
+对应参数：`delta_A_deg`（单位：**度**，内部自动转换为弧度）。设为 `0` 可禁用此触发。
+
+---
+
+## 快速开始
 
 ```bash
-cd ~/catkin_ws
-catkin_make
-source devel/setup.bash
-```
-
----
-
-## 配置参数
-
-所有参数集中在 `config/config.yaml`，也可在 launch 文件或命令行中通过私有命名空间 `~` 覆盖。
-
-| 参数 | 类型 | 默认值 | 说明 |
-|------|------|--------|------|
-| `delta_L_m` | `double` | `1.0` | 触发记录的最小累计位移阈值（米），须 \(> 0\) |
-| `delta_T_s` | `double` | `5.0` | 触发记录的最大时间间隔阈值（秒），须 \(> 0\) |
-| `odom_topic` | `string` | `"/Odometry_global"` | 订阅的里程计话题名称 |
-| `output_path` | `string` | `"/tmp/waypoints.json"` | JSON 输出文件的完整路径（含文件名） |
-
-> **提示：** 若 `delta_L_m` 或 `delta_T_s` 传入非正值，节点会打印警告并自动重置为默认值。
-
----
-
-## 启动
-
-### 方式一：使用 launch 文件（推荐）
-
-```bash
+# 使用默认配置启动
 roslaunch indooruav_waypoint_manager bringup_indooruav_waypoint_manager.launch
+
+# 覆盖单个参数（示例）
+roslaunch indooruav_waypoint_manager bringup_indooruav_waypoint_manager.launch \
+    config_file:=/path/to/my_config.yaml
 ```
 
-### 方式二：直接运行节点并覆盖参数
+或直接通过 `rosrun` 传入私有参数：
 
 ```bash
 rosrun indooruav_waypoint_manager indooruav_waypoint_manager_node \
-    _delta_L_m:=0.5 \
-    _delta_T_s:=3.0 \
+    _delta_L_m:=2.0   \
+    _delta_T_s:=10.0  \
+    _delta_A_deg:=45.0 \
     _odom_topic:=/Odometry_global \
-    _output_path:=/home/user/data/waypoints.json
+    _output_path:=/tmp/waypoints.json
 ```
 
-### 停止节点
+---
 
-按 **Ctrl+C** 即可触发 `SIGINT`，节点会在退出前自动将已采集的全部航点写入文件。
+## 参数配置
+
+所有参数均在 `config/config.yaml` 中定义，由 launch 文件通过 `<rosparam>` 加载到节点私有命名空间（`~/`）。
+
+| 参数名 | 类型 | 默认值 | 说明 |
+|---|---|---|---|
+| `delta_L_m` | double | `1.0` | XY 位移触发阈值（米）。必须 > 0。 |
+| `delta_T_s` | double | `5.0` | 时间触发阈值（秒）。必须 > 0。 |
+| `delta_A_deg` | double | `30.0` | 偏航角触发阈值（度）。设为 `0` 禁用。 |
+| `odom_topic` | string | `"/Odometry_global"` | 订阅的里程计话题名称。 |
+| `output_path` | string | `"/tmp/waypoints.json"` | 输出 JSON 文件的完整路径。 |
+
+**配置示例**（`config/config.yaml`）：
+
+```yaml
+delta_L_m:   1.0
+delta_T_s:   5.0
+delta_A_deg: 30.0
+odom_topic:  "/Odometry_global"
+output_path: "/home/user/data/waypoints.json"
+```
 
 ---
 
 ## 输出格式
 
-航点以 JSON 数组形式存储，每条记录包含位置、姿态和时间戳：
+记录完成后生成标准 JSON 文件，每个航点包含位置、姿态四元数与 UTC 时间戳（ISO-8601，精度至毫秒）。
 
 ```json
 {
   "waypoints": [
     {
-      "x_m":       1.234567,
-      "y_m":       0.987654,
-      "z_m":       0.500000,
-      "q_x":       0.000000,
-      "q_y":       0.000000,
-      "q_z":       0.707107,
-      "q_w":       0.707107,
-      "time":      "2025-03-11T08:30:00.123"
+      "x_m":   1.234567,
+      "y_m":   2.345678,
+      "z_m":   0.050000,
+      "q_x":   0.000000,
+      "q_y":   0.000000,
+      "q_z":   0.382683,
+      "q_w":   0.923880,
+      "time":  "2025-03-11T08:30:00.123"
     },
-    ...
+    {
+      "x_m":   2.100000,
+      ...
+    }
   ]
 }
 ```
 
-| 字段 | 单位 | 说明 |
-|------|------|------|
-| `x_m` / `y_m` / `z_m` | 米 | 机器人在全局坐标系下的位置 |
-| `q_x` / `q_y` / `q_z` / `q_w` | 无量纲 | 姿态四元数（单位四元数） |
-| `time` | — | ISO-8601 格式时间戳，精度到毫秒（UTC） |
+> 姿态以 `(q_x, q_y, q_z, q_w)` 四元数表示，遵循 ROS 约定（`geometry_msgs/Quaternion`）。
 
 ---
 
-## 模块说明
+## 包结构
 
-### `WaypointManager`
-
-核心控制器，负责订阅里程计话题并执行触发判断。
-
-- **构造函数**：接收参数并向 ROS 订阅 `odom_topic`。
-- **`odomCallback`**：每帧更新累计位移与经过时间，满足条件则调用 `Recorder::record()`。
-- **`makeWaypoint`**：从里程计消息中提取位姿与时间戳，封装为 `Waypoint` 结构体。
-- **`save()`**：代理调用 `Recorder::save()`，供外部（`SIGINT` 钩子）显式触发。
-
-### `Recorder`
-
-专职 I/O 组件，负责航点的内存缓存与 JSON 序列化落盘。
-
-- **`record(wp)`**：将 `Waypoint` 追加至内部 `std::vector`，并打印日志。
-- **`save()`**：将缓存中的全部航点以格式化 JSON 写入 `output_path_`。
-- **析构函数**：若缓存非空则自动调用 `save()`，防止异常退出时数据丢失。
-
-### `Waypoint`
-
-轻量级数据结构，聚合单条航点的所有字段：位置、四元数姿态、ISO-8601 时间戳。
+```
+indooruav_waypoint_manager/
+├── CMakeLists.txt
+├── package.xml
+├── config/
+│   └── config.yaml               # 可配置参数
+├── launch/
+│   └── bringup_indooruav_waypoint_manager.launch
+├── include/
+│   └── indooruav_waypoint_manager/
+│       ├── waypoint.hpp          # Waypoint 数据结构
+│       ├── recorder.hpp          # 航点记录器接口
+│       └── waypoint_manager.hpp  # 主逻辑管理器接口
+└── src/
+    ├── main.cpp                  # 节点入口、参数读取、SIGINT 处理
+    ├── waypoint_manager.cpp      # 里程计回调、三重触发逻辑
+    └── recorder.cpp              # JSON 序列化与文件写入
+```
 
 ---
 
-## 注意事项
+## 依赖项
 
-1. **输出目录须提前存在**：节点不会自动创建父目录，请确保 `output_path` 所在目录已存在，否则文件写入会失败。
-2. **时间戳基准为 UTC**：`formatTime` 使用 `std::gmtime`，输出时间为 UTC 而非本地时间。
-3. **话题类型**：`odom_topic` 须发布 `nav_msgs/Odometry` 类型消息，否则订阅无效。
-4. **多次 `save()` 调用**：`Recorder::save()` 是幂等的（每次调用都会覆盖写入整个文件），`SIGINT` 与析构的双重保护不会造成数据损坏，但会写入两次磁盘。
+| 依赖 | 版本要求 | 说明 |
+|---|---|---|
+| ROS (roscpp) | Melodic / Noetic | 核心通信框架 |
+| nav_msgs | 随 ROS 发行版 | 提供 `nav_msgs/Odometry` |
+| C++14 | — | 标准库特性（`std::make_shared` 等） |
+
+> 原先依赖 `tf` 包用于四元数转换，本版本已改为内联数学公式实现，**无需额外依赖 `tf`**。
+
+---
+
+## 构建与安装
+
+```bash
+# 进入 catkin 工作空间
+cd ~/catkin_ws
+
+# 编译
+catkin_make --only-pkg-with-deps indooruav_waypoint_manager
+
+# 或使用 catkin build
+catkin build indooruav_waypoint_manager
+
+# source 环境
+source devel/setup.bash
+```
+
+---
+
+## 常见问题
+
+**Q: 节点启动后没有任何输出？**
+
+检查 `odom_topic` 是否与实际话题名一致：
+```bash
+rostopic list | grep -i odom
+```
+
+**Q: 如何只使用时间触发，不按位移或角度触发？**
+
+将 `delta_L_m` 设为一个极大值（如 `9999.0`），将 `delta_A_deg` 设为 `0`，仅保留 `delta_T_s` 生效。
+
+**Q: Z 轴（高度）变化为什么不计入 ΔL？**
+
+室内无人机在悬停、起降过程中高度会变化，但这不代表水平路径上的关键节点。仅统计 XY 位移可避免因升降而在同一地点记录冗余航点。
+
+**Q: `delta_A_deg` 设为多少合适？**
+
+一般场景建议 20°–45°。如需在直线走廊中密集记录，可适当减小；如仅关注大转弯节点，可设为 60°–90°。
+
+---
+
+*Maintained by indooruav team. License: MIT.*

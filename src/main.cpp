@@ -20,18 +20,20 @@ int main(int argc, char** argv)
 {
     ros::init(argc, argv, "indooruav_waypoint_manager",
               ros::init_options::NoSigintHandler);
-    setlocale(LC_ALL, "");  
+    setlocale(LC_ALL, "");
     ros::NodeHandle nh;
     ros::NodeHandle pnh("~");   // 私有参数命名空间
 
     // ── 读取参数 ────────────────────────────────────────────────────────────
     double      delta_L_m   = 1.0;
     double      delta_T_s   = 5.0;
+    double      delta_A_deg = 30.0;
     std::string odom_topic  = "/odom";
     std::string output_path = "/tmp/waypoints.json";
 
     pnh.param("delta_L_m",   delta_L_m,   delta_L_m);
     pnh.param("delta_T_s",   delta_T_s,   delta_T_s);
+    pnh.param("delta_A_deg", delta_A_deg, delta_A_deg);
     pnh.param("odom_topic",  odom_topic,  odom_topic);
     pnh.param("output_path", output_path, output_path);
 
@@ -44,10 +46,14 @@ int main(int argc, char** argv)
         ROS_WARN("[indooruav_waypoint_manager] delta_T_s <= 0，已重置为 5.0 s");
         delta_T_s = 5.0;
     }
+    if (delta_A_deg < 0.0) {
+        ROS_WARN("[indooruav_waypoint_manager] delta_A_deg < 0，已重置为 0（禁用角度触发）");
+        delta_A_deg = 0.0;
+    }
 
     // ── 创建管理器 ───────────────────────────────────────────────────────────
     g_manager = std::make_shared<indooruav_waypoint_manager::WaypointManager>(
-        nh, delta_L_m, delta_T_s, odom_topic, output_path);
+        nh, delta_L_m, delta_T_s, delta_A_deg, odom_topic, output_path);
 
     // 注册信号处理（确保 Ctrl+C 时保存文件）
     std::signal(SIGINT, sigintHandler);
