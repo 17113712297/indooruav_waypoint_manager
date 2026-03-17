@@ -1,25 +1,6 @@
 # indooruav_waypoint_manager
 
-> ROS 航点自动记录器：订阅里程计话题，按**位移（XY）**、**时间**、**偏航角**三重触发条件自动采集机器人位姿，并将结果序列化为 JSON 文件。
-
----
-
-## 目录
-
-- [indooruav\_waypoint\_manager](#indooruav_waypoint_manager)
-  - [目录](#目录)
-  - [功能概述](#功能概述)
-  - [触发条件说明](#触发条件说明)
-    - [ΔL — XYZ 三维位移触发](#δl--xyz-三维位移触发)
-    - [ΔT — 时间间隔触发](#δt--时间间隔触发)
-    - [ΔA — 偏航角触发](#δa--偏航角触发)
-  - [快速开始](#快速开始)
-  - [参数配置](#参数配置)
-  - [输出格式](#输出格式)
-  - [包结构](#包结构)
-  - [依赖项](#依赖项)
-  - [构建与安装](#构建与安装)
-  - [常见问题](#常见问题)
+> ROS 航点自动记录器：订阅里程计话题，按**位移（XYZ）**、**时间**、**偏航角**三重触发条件自动采集机器人位姿，并将结果序列化为 JSON 文件。
 
 ---
 
@@ -46,7 +27,7 @@ $$
 d_{XYZ} = \sqrt{(x - x_{\text{last}})^2 + (y - y_{\text{last}})^2 + (z - z_{\text{last}})^2} \geq \Delta L
 $$
 
-> **注意：** 此处计算完整三维距离，Z 轴（高度）变化也计入位移统计。在室内无人机等场景中，垂直方向的运动同样代表真实的飞行路径长度，因此纳入计算更为准确。
+
 
 对应参数：`delta_L_m`（单位：米）
 
@@ -80,29 +61,6 @@ $$
 
 ---
 
-## 快速开始
-
-```bash
-# 使用默认配置启动
-roslaunch indooruav_waypoint_manager bringup_indooruav_waypoint_manager.launch
-
-# 覆盖单个参数（示例）
-roslaunch indooruav_waypoint_manager bringup_indooruav_waypoint_manager.launch \
-    config_file:=/path/to/my_config.yaml
-```
-
-或直接通过 `rosrun` 传入私有参数：
-
-```bash
-rosrun indooruav_waypoint_manager indooruav_waypoint_manager_node \
-    _delta_L_m:=2.0   \
-    _delta_T_s:=10.0  \
-    _delta_A_deg:=45.0 \
-    _odom_topic:=/Odometry_global \
-    _output_path:=/tmp/waypoints.json
-```
-
----
 
 ## 参数配置
 
@@ -192,7 +150,7 @@ indooruav_waypoint_manager/
 
 ---
 
-## 构建与安装
+## 构建与使用
 
 ```bash
 # 进入 catkin 工作空间
@@ -201,36 +159,10 @@ cd ~/catkin_ws
 # 编译
 catkin_make --only-pkg-with-deps indooruav_waypoint_manager
 
-# 或使用 catkin build
-catkin build indooruav_waypoint_manager
-
 # source 环境
 source devel/setup.bash
+
+# 启动
+roslaunch indooruav_waypoint_manager bringup_indooruav_waypoint_manager.launch
 ```
 
----
-
-## 常见问题
-
-**Q: 节点启动后没有任何输出？**
-
-检查 `odom_topic` 是否与实际话题名一致：
-```bash
-rostopic list | grep -i odom
-```
-
-**Q: 如何只使用时间触发，不按位移或角度触发？**
-
-将 `delta_L_m` 设为一个极大值（如 `9999.0`），将 `delta_A_deg` 设为 `0`，仅保留 `delta_T_s` 生效。
-
-**Q: Z 轴（高度）变化是否计入 ΔL？**
-
-是的，ΔL 现在计算完整的 XYZ 三维欧氏距离，高度变化同样纳入位移统计。对于室内无人机而言，垂直方向的飞行同样构成真实路径，因此三维计算能更准确地反映飞行轨迹长度，避免在快速升降时漏记航点。
-
-**Q: `delta_A_deg` 设为多少合适？**
-
-一般场景建议 20°–45°。如需在直线走廊中密集记录，可适当减小；如仅关注大转弯节点，可设为 60°–90°。
-
----
-
-*Maintained by indooruav team. License: MIT.*
